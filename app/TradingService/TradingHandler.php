@@ -9,7 +9,7 @@ class TradingHandler
 {
     
 
-    public function IsOrderExist($istance_key, $timeframe, $lot, $side, $tp, $sl, $comment, $magnum)
+    public function IsOrderExist($istanceKey, $timeframe, $lot, $side, $tp, $sl, $comment, $magnum)
     {
     
             // Concatena comment e symbol
@@ -17,7 +17,7 @@ class TradingHandler
 
             // Controlla se il comando esiste già nel database
             $existingCommand = DB::table('command_queues')
-                ->where('istance_key', $istance_key)
+                ->where('istance_key', $istanceKey)
                 ->where('cmd_name', $cmd)
                 ->where('side', $side)
                 ->where('lot', $lot)
@@ -44,15 +44,15 @@ class TradingHandler
                 return false;
 
             } else {
-                throw new CustomException("Il comando esiste già nel database.", $istance_key);
+                throw new CustomException("Il comando esiste già nel database.", $istanceKey);
                 return true;
             }
     }
 
-    public function placeOrder($istance_key, $lot, $side, $tp, $sl, $comment, $magnum)
+    public function placeOrder($istanceKey, $lot, $side, $tp, $sl, $comment, $magnum)
     {
         DB::table('command_queues')->insert([
-            'istance_key' => $istance_key,
+            'istance_key' => $istanceKey,
             'cmd_name' => 'open',
             'side' => $side,
             'lot' => $lot,
@@ -65,10 +65,10 @@ class TradingHandler
 
     }
 
-    public function closeOrder($istance_key, $ticket, $lot)
+    public function closeOrder($istanceKey, $ticket, $lot)
     {
         DB::table('command_queues')->insert([
-            'istance_key' => $istance_key,
+            'istance_key' => $istanceKey,
             'cmd_name' => 'close',
             'ticket' => $ticket,
             'lot' => $lot,
@@ -76,12 +76,12 @@ class TradingHandler
         ]);
     }
 
-    public function logTradingSignal($symbol, $timeframe, $istance_key, $close_values, $ema, $rsi, $breakout_detected, $breakout_direction, $entry_signal, $confirmation_candle, $tp, $sl, $entry_price) {
+    public function logTradingSignal($symbol, $timeframe, $istanceKey, $close_values, $ema, $rsi, $breakout_detected, $breakout_direction, $entry_signal, $confirmation_candle, $tp, $sl, $entry_price) {
 
         Log::info('Segnale di trading:', [
             'symbol' => $symbol,
             'timeframe' => $timeframe,
-            'istance_key' => $istance_key,
+            'istance_key' => $istanceKey,
             'close_values' => $close_values,
             'ema' => $ema,
             'rsi' => $rsi,
@@ -148,12 +148,12 @@ class TradingHandler
         return $rsi;
     }
 
-    public function WaveTrendLB($istance_key, $symbol, $Clenght, $Alenght, $ObLevel1, $ObLevel2, $OsLevel1, $OsLevel2){
+    public function WaveTrendLB($istanceKey, $symbol, $Clenght, $Alenght, $ObLevel1, $ObLevel2, $OsLevel1, $OsLevel2){
 
         // Recupera la data o il timestamp della candela con `first` a `true`
         $firstCandle = DB::table('simble_datas')
         ->where('simble_name', $symble)
-        ->where('istance_key', $istance_key)
+        ->where('istance_key', $istanceKey)
         ->where('first', true)
         ->orderBy('created_at', 'desc') // Ordina per data, più recente prima
         ->first(['created_at']); // Recupera solo la colonna `created_at`
@@ -162,7 +162,7 @@ class TradingHandler
            // Usa la data della candela con `first` a `true` per trovare la candela successiva
             $nextCandle = DB::table('simble_datas')
                 ->where('simble_name', $symble)
-                ->where('istance_key', $istance_key)
+                ->where('istance_key', $istanceKey)
                 ->where('first', false)
                 ->where('created_at', '>', $firstCandle->created_at) // Trova la candela successiva
                 ->orderBy('created_at', 'asc') // Ordina per data, più recente prima
@@ -177,12 +177,12 @@ class TradingHandler
         }
     }
 
-    public function cmd($istance_key, $cmd, $side, $lot, $magnum, $comment, $symbol, $timeframe) // $tp, $sl,
+    public function cmd($istanceKey, $cmd, $side, $lot, $magnum, $comment, $symbol, $timeframe) // $tp, $sl,
     {
 
         // Recupera i dati di mercato più recenti
         $marketData = DB::table('simble_datas')
-            ->where('istance_key', $istance_key)
+            ->where('istance_key', $istanceKey)
             ->where('first', true)
             ->where('simble_name', $symbol)
             ->where('time_frame', $timeframe)
@@ -214,7 +214,7 @@ class TradingHandler
 
         // Controlla se il comando esiste già nel database
         $existingCommand = DB::table('command_queues')
-            ->where('istance_key', $istance_key)
+            ->where('istance_key', $istanceKey)
             ->where('cmd_name', $cmd)
             ->where('side', $side)
             ->where('lot', $lot)
@@ -227,15 +227,15 @@ class TradingHandler
         // Se il comando non esiste, inseriscilo
         if (!$existingCommand) {
             DB::table('command_queues')->insert([
-                'istance_key' => $istance_key,
+                'istance_key' => $istanceKey,
                 'cmd_name' => $cmd,
                 'side' => $side,
                 'lot' => $lot,
                 'tp' => $tp,
                 'sl' => $sl,
                 'magnum' => $magnum,
-                'comment' => $fullComment
-                'created_at' => Carbon::now('Europe/Rome')
+                'comment' => $fullComment,
+                'created_at' => Carbon::now("Europe/Rome")
             ]);
         } else {
             throw new CustomException("Il comando esiste già nel database.", $istanceKey);
