@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
-use App\TradingService\Alpha;
+use App\TradingService\Beta;
 
 use Illuminate\Support\Facades\DB;
 
@@ -139,10 +139,6 @@ class IstanceController extends Controller
 
 public function market(Request $request)
 {
-      // Inizializza e esegui la strategia
-    //   $strategy = new Alpha();
-    //   $strategy->execute($symbol);
-    
     // Leggi il contenuto della richiesta come stringa JSON
     $jsonString = $request->getContent();
 
@@ -402,7 +398,7 @@ public function candle(Request $request){
     
             // Log the insertion
             Log::info('Symbol data inserted successfully:', ['license_key' => $license_key]);
-
+    
             //ritorno dei settings dell'istanza
             $existingRecord = DB::table('istance_settings')
                     ->where('istance_key', $license_key)
@@ -412,6 +408,11 @@ public function candle(Request $request){
                     settype($timeframe, "integer");
                     $market_refresh_rate = $existingRecord->market_refresh_rate;
                     settype($market_refresh_rate, "integer");
+
+            // Inizializza e esegui la strategia
+            $strategy = new Beta();
+            $strategy->execute($symbol_data['symbol_name'], $license_key, $timeframe);
+
             return response()->json([
                 'success' => true,
                 'symbol' => $existingRecord->active_simble,
