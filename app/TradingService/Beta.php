@@ -2,145 +2,179 @@
 
 namespace App\TradingService;
 
-use App\TradingService\TradingHandler;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\TradingService\TradingHandler;
 use App\Exceptions\CustomException;
 
+class Beta extends TradingHandler
+{
+    private $period_ema = 200;
+    private $period_rsi = 20;
+    private $level_rsi = 50;
+    private $stop_loss_points = 50;
+    private $min_tp_distance = 30;
 
-class Beta extends TradingHandler {         // MANCA BE, FUNZIONI PER LOTTI, FASCE ORARIE e ONE-TRADE-AT-TIME  
+    private $lastCandle = null;  // Variabile per tracciare l'ultima candela
+    private $break_ema_check = 0;
+    private $stopEntry = false;
+    private $side = null;
 
-    // Parametri configurabili
-    private $period_ema         = 200;            // Periodo per EMA
-    private $period_rsi         = 20;             // Periodo per RSI
-    private $level_rsi          = 50;              // Livello per RSI
-    private $stop_loss_points   = 50;        // Stop Loss in punti (points)
-    private $min_tp_distance    = 30;         // Distanza minima di TP in punti (points)
-
-    public function Execute($symbol, $istanceKey, $timeframe) {
+    public function execute($symbol, $istanceKey, $timeframe)
+    {
         // Preleva dati da DB
         $last_closed_candle = DB::table('simble_datas')
             ->where('istance_key', $istanceKey)
             ->where('first', true)
             ->where('simble_name', $symbol)
             ->where('time_frame', $timeframe)
-            ->orderBy('id', 'desc') // Ordina per ID in ordine decrescente per ottenere l'ultimo record
+            ->orderBy('id', 'desc')
             ->first();
 
         if (!$last_closed_candle) {
             throw new CustomException('Nessun record trovato in simble_datas.', $istanceKey);
         }
 
-        // Estrai la stringa JSON dalla colonna `past_candle_json`
-        $past_candle_json = $last_closed_candle->past_candle_json;
+        // Recupero della nuova candela dal DB
+        $newCandle = $this->getLatestCandle($symbol, $timeframe, $istanceKey);
 
-        // Decodifica la stringa JSON in un array PHP
+        $past_candle_json = $last_closed_candle->past_candle_json;
         $past_candles = json_decode($past_candle_json, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
             throw new CustomException('Errore nella decodifica del JSON: ' . json_last_error_msg(), $istanceKey);
         }
 
-        // Accedi ai valori di `open` e `close` di ogni candela
+        // Verifica se ci sono abbastanza candele
+        $required_candles = max($this->period_ema, $this->period_rsi);
+        if (count($past_candles) < $required_candles) {
+            throw new CustomException('Non ci sono abbastanza candele per calcolare l\'EMA o l\'RSI.', $istanceKey);
+        }
+
+        // Estrai i valori di open e close
         $close_values = [];
         $open_values = [];
-        foreach ($past_candles as $candle) {
+        $new_last_candle = null;
+
+        foreach ($past_candles as $index => $candle) {
             if (isset($candle['close']) && isset($candle['open'])) {
+                if ($index === 0) {
+                    $new_last_candle = $candle; // Nuova ultima candela
+                }
                 $close_values[] = $candle['close'];
                 $open_values[] = $candle['open'];
             }
         }
 
-        // Calcola EMA e RSI
-        $ema = $this->calculateEMA($close_values, $this->period_ema);
-        $rsi = $this->calculateRSI($close_values, $this->period_rsi);
+        $reverse_close_values = array_reverse($close_values);
 
-        // Identifica il breakout della EMA
-        $breakout_detected = false;
-        $breakout_direction = null; // 'up' o 'down'
-        $confirmation_candle = null;
-        $breakout_candle_index = null;
+        //Log::info('Numero di valori di chiusura disponibili: ' . count($reverse_close_values));
+        //Log::info('CLOSE ARRAY: ' . print_r($reverse_close_values, true));
+        // Calcola EMA & RSI
+        $ema = $this->calculateEMA($reverse_close_values, $this->period_ema );
+        $sma = $this->calculateSMA($reverse_close_values, $this->period_ema);
+        $rsi = $this->calculateRSI($reverse_close_values, $this->period_rsi);
 
-        for ($i = 1; $i <= 3; $i++) {
-            if (count($close_values) - $i < 0) break;
-            $current_close = $close_values[count($close_values) - $i];
-            $previous_close = $close_values[count($close_values) - $i - 1];
-            $current_open = $open_values[count($open_values) - $i];
-            $previous_open = $open_values[count($open_values) - $i - 1];
+        $open_last = $new_last_candle['open'];
+        $close_last = $new_last_candle['close'];
 
-            if ($previous_close < $ema && $current_close > $ema && $current_open > $ema) {
-                $breakout_detected = true;
-                $breakout_direction = 'up';
-                $breakout_candle_index = count($past_candles) - $i;
-                $confirmation_candle = $past_candles[$breakout_candle_index];
-                break;
-            } elseif ($previous_close > $ema && $current_close < $ema && $current_open < $ema) {
-                $breakout_detected = true;
-                $breakout_direction = 'down';
-                $breakout_candle_index = count($past_candles) - $i;
-                $confirmation_candle = $past_candles[$breakout_candle_index];
-                break;
-            }
-        }
+        Log::info('Dati dell\'ultima candela: ' . json_encode($new_last_candle));        
+        Log::info('EMA' . $this->period_ema . ': ' . $ema);
+        Log::info('SMA' . $this->period_ema . ': ' . $sma);
+        Log::info('RSI' . $this->period_rsi . ': ' . $rsi);
 
-        // Verifica la conferma del breakout
-        $confirmation_valid = false;
-        if ($breakout_detected && $breakout_candle_index !== null) {
-            for ($i = 1; $i <= 3; $i++) {
-                if ($breakout_candle_index + $i >= count($past_candles)) break;
-                $confirm_candle = $past_candles[$breakout_candle_index + $i];
-                if ($confirm_candle['close'] != $ema) {
-                    $confirmation_valid = true;
-                    break;
+        // Verifica se c'è stato un cambio di candela
+        if ($this->lastCandle === null || $this->hasCandleChanged($newCandle, $this->lastCandle)) {
+            if ($this->lastCandle !== null) {
+                Log::info('Cambio candela rilevato');
+
+                // Aggiorna l'ultima candela
+                $this->lastCandle = $newCandle;
+
+                // Verifica se c'è stata una rottura e determina la direzione
+                $break_direction = $this->checkBreak($ema, $open_last, $close_last);
+
+                if ($break_direction === "LONG" && !$this->stopEntry) {
+                    $this->stopEntry = true;
+                    $this->break_ema_check = 1;
+                    $this->side = "BUY";
+                    Log::info('Direzione del breakout: LONG');
+                } elseif ($break_direction === "SHORT" && !$this->stopEntry) {
+                    $this->stopEntry = true;
+                    $this->break_ema_check = 1;
+                    $this->side = "SELL";
+                    Log::info('Direzione del breakout: SHORT');
                 }
+
+                // Gestisci i passi per la strategia
+                switch ($this->break_ema_check) {
+                    case 1:
+                        $this->handleCheckStep($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, 1);
+                        break;
+                    case 2:
+                        $this->handleCheckStep($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, 2);
+                        break;
+                    case 3:
+                        $this->handleCheckStep($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, 3);
+                        break;
+                }
+            } else {
+                // Aggiorna la variabile statica con il nuovo valore di candela
+                $this->lastCandle = $newCandle;
+
+                Log::info('Inizializzazione dell\'ultima candela: ', [
+                    'id' => $this->lastCandle->id,
+                    'symbol' => $this->lastCandle->simble_name,
+                    'timeframe' => $this->lastCandle->time_frame,
+                    'open' => $this->lastCandle->open,
+                    'high' => $this->lastCandle->current_high,
+                    'low' => $this->lastCandle->current_low
+                ]);
             }
+        } else {
+            Log::info('Nessun cambio di candela rilevato.');
         }
-
-        // Ottieni la precisione del simbolo
-        $decimal_precision = $this->getDecimalPrecision($symbol);
-
-        // Ottieni prezzi correnti di ask e bid
-        $current_ask = $last_closed_candle->current_ask;
-        $current_bid = $last_closed_candle->current_bid;
-
-        // Calcola TP e SL
-        $tp = $ema;
-        $entry_signal = null;  // long o short
-        $entry_price = null;
-        $sl = null;
-
-        if ($breakout_detected && $confirmation_valid) {
-            if ($breakout_direction == 'up' && $rsi < $this->level_rsi) {
-                $entry_signal = 'short';
-                $entry_price = $current_bid; // Prezzo di ingresso per short
-                $sl = $entry_price + ($this->stop_loss_points * pow(10, -$decimal_precision)); // SL a 5 punti sopra
-            } elseif ($breakout_direction == 'down' && $rsi > $this->level_rsi) {
-                $entry_signal = 'long';
-                $entry_price = $current_ask; // Prezzo di ingresso per long
-                $sl = $entry_price - ($this->stop_loss_points * pow(10, -$decimal_precision)); // SL a 5 punti sotto
-            }
-
-            // Verifica la distanza del TP
-            $tp_distance = abs($tp - $entry_price);
-            $min_points = $this->min_tp_distance * pow(10, -$decimal_precision); // Distanza minima di TP in base alla precisione
-            if ($tp_distance < $min_points) {
-                $entry_signal = null; // Invalidazione dell'entrata
-            }
-        }
-
-        //controllo se il segnale esiste
-        $this->IsOrderExist($istanceKey, $timeframe, $lot, $side, $tp, $sl, $comment, $magnum);
-
-        //invio del segnale
-        $this->placeOrder($istanceKey, $lot, $side, $tp, $sl, $comment, $magnum);        //$this->cmd($istanceKey, 'open', 0, 0.1, 123456, 'Beta ', $symbol, $timeframe);
-
-        // Log il segnale
-        $this->logTradingSignal($symbol, $timeframe, $istanceKey, $close_values, $ema, $rsi, $breakout_detected, $breakout_direction, $entry_signal, $confirmation_candle, $tp, $sl, $entry_price);
-    
-        // BE e gestione operazioni
-        // ...
-
     }
 
-}   
+    private function checkBreak($ema, $open_last, $close_last) {
+        if ($close_last > $ema && $open_last > $ema) {
+            return "LONG";
+        } elseif ($close_last < $ema && $open_last < $ema) {
+            return "SHORT";
+        }
+        return "NONE";
+    }
 
+    private function checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last) {
+        $rsi = $this->calculateRSI($close_values, $this->period_rsi);
+        $tp_distance = abs($ema - $close_last);
+
+        if ($side === "BUY") {
+            if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+                Log::info('Condizioni per BUY soddisfatte: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+                return true;
+            }
+        } elseif ($side === "SELL") {
+            if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+                Log::info('Condizioni per SELL soddisfatte: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+                return true;
+            }
+        }
+
+        Log::info('Condizioni per entry non soddisfatte');
+        return false;
+    }
+
+    private function handleCheckStep($istanceKey, $ema, $close_values, $side, $close_last, $open_last, $step) {
+        if ($this->checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last)) {
+            $this->stopEntry = false;
+            $this->break_ema_check = 0;
+            Log::info("Entry valida - $side - RSI < {$this->level_rsi}");
+            // $this->trade($side);
+        } else {
+            $this->break_ema_check = $step + 1;
+            $this->stopEntry = false;
+            Log::info("Controllo non valido N°$step");
+        }
+    }
+}

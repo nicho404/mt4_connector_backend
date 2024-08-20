@@ -12,7 +12,11 @@ use App\TradingService\Beta;
 use Illuminate\Support\Facades\DB;
 
 class IstanceController extends Controller
+
 {
+    // Dichiarazione della variabile statica
+    private static $betaInstances = [];
+
     public function index(){
         $istances = DB::table('istances')->get();
 
@@ -409,10 +413,17 @@ public function candle(Request $request){
                     $market_refresh_rate = $existingRecord->market_refresh_rate;
                     settype($market_refresh_rate, "integer");
 
-            // Inizializza e esegui la strategia
-            $strategy = new Beta();
-            $strategy->execute($symbol_data['symbol_name'], $license_key, $timeframe);
+            // Verifica se esiste già un'istanza per questa chiave
+            if (!isset(self::$betaInstances[$license_key])) {
+                // Se non esiste, crea una nuova istanza di Beta
+                self::$betaInstances[$license_key] = new Beta($license_key);
+            }
 
+            // Recupera l'istanza associata alla chiave
+            $strategy = self::$betaInstances[$license_key];
+
+        // Esegui la strategia con i dati della candela
+        $strategy->execute($symbol_data["symbol_name"], $license_key, $symbol_data["time_frame"]);
             return response()->json([
                 'success' => true,
                 'symbol' => $existingRecord->active_simble,

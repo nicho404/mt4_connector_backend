@@ -4,12 +4,15 @@ namespace App\TradingService;
 
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Exceptions\CustomException;
+use Carbon\Carbon;
 
 class TradingHandler
 {
     
 
-    public function IsOrderExist($istanceKey, $timeframe, $lot, $side, $tp, $sl, $comment, $magnum)
+    public function IsOrderExist($istanceKey, $timeframe, $symbol, $cmd, $lot, $side, $tp, $sl, $comment, $magnum)
     {
     
             // Concatena comment e symbol
@@ -30,7 +33,7 @@ class TradingHandler
             // Se il comando non esiste, inseriscilo
             if (!$existingCommand) {
                 DB::table('command_queues')->insert([
-                    'istance_key' => $istance_key,
+                    'istance_key' => $istanceKey,
                     'cmd_name' => $cmd,
                     'side' => $side,
                     'lot' => $lot,
@@ -107,47 +110,167 @@ class TradingHandler
         return $symbol_precision[$symbol] ?? 4; // Default a 4 se non trovato
     }
 
-    public function calculateEMA($prices, $period) {
-        // Calcolo del moltiplicatore di smoothing
-        $k = 2 / ($period + 1);
-        
-        // Inizializzazione dell'EMA con il primo prezzo della lista
-        $ema = array_shift($prices);
-
-        // Calcolo dell'EMA per il resto dei prezzi
-        foreach ($prices as $price) {
-            $ema = ($price * $k) + ($ema * (1 - $k));
+    public function hasCandleChanged($newCandle, $lastCandle) {
+        // Controlla se esiste una candela precedente
+        if (!$lastCandle) {
+            // Se non esiste una candela precedente, considera la nuova come diversa
+            return true;
         }
-
-        // Restituisce l'ultimo valore dell'EMA calcolato
-        return round($ema, 5);
+    
+        // Confronta l'ID della nuova candela con quello dell'ultima candela salvata
+        if ($newCandle->id !== $lastCandle->id) {
+            return true;
+        }
+    
+        // Confronta i valori significativi delle candele
+        if ($newCandle->open !== $lastCandle->open ||
+            $newCandle->close !== $lastCandle->close ||
+            $newCandle->high !== $lastCandle->high ||
+            $newCandle->low !== $lastCandle->low) {
+            return true;
+        }
+    
+        // Se tutti i controlli precedenti falliscono, significa che la candela non è cambiata
+        return false;
     }
+    
 
+    public function getLatestCandle($symbol, $timeframe, $istanceKey) {
+        // Recupera l'ultima candela disponibile dal database
+        $latestCandle = DB::table('simble_datas')
+            ->where('simble_name', $symbol)
+            ->where('time_frame', $timeframe)
+            ->where('istance_key', $istanceKey)
+            ->where('first', true)
+            ->orderBy('id', 'desc')
+            ->first();
+    
+        if (!$latestCandle) {
+            throw new CustomException('Nessuna candela trovata per il simbolo e timeframe specificati.', $istanceKey);
+        }
+    
+        return $latestCandle;
+    }
+    
+    public function calculateEMA($prices, $period) {
+
+        $emaBuffer = [];
+
+        // Assicurati che ci siano almeno $period valori disponibili
+        if (count($prices) < $period) {
+            throw new InvalidArgumentException("Non ci sono abbastanza dati per calcolare l'EMA.");
+        }
+    
+        // Calcolo del fattore di lisciatura (Smooth Factor)
+        $smoothFactor = 2.0 / ($period + 1);
+    
+        // Inizializzazione
+        $currentIndex = 0;
+        $startIndex = count($prices) - 1;
+    
+        // Calcola il primo valore dell'EMA
+        if (count($prices) > 0) {
+            $emaBuffer[0] = End($prices); // Imposta il primo valore come inizializzazione
+        }
+    
+        // Calcolo dell'EMA per i valori successivi
+        while ($currentIndex < count($prices) - 1) {
+            $nextIndex = $currentIndex + 1;
+            
+            // Calcola l'EMA corrente
+            $emaBuffer[$nextIndex] = $prices[$nextIndex] * $smoothFactor + $emaBuffer[$currentIndex] * (1 - $smoothFactor);
+            
+            $currentIndex++;
+        }
+    
+        // Logga tutti i valori dell'EMA
+//        $emaValuesString = implode(", ", $emaBuffer);
+//        Log::info("EMA values: " . $emaValuesString);
+    
+        // Ritorna il buffer dell'EMA
+        return end($emaBuffer);
+    }
+    
+    public function calculateSMA($prices, $period) {
+        $smaBuffer = [];
+    
+        // Assicurati che ci siano almeno $period valori disponibili
+        if (count($prices) < $period) {
+            throw new InvalidArgumentException("Non ci sono abbastanza dati per calcolare la SMA.");
+        }
+    
+        // Calcola il primo valore della SMA
+        $firstSMA = array_sum(array_slice($prices, 0, $period)) / $period;
+        $smaBuffer[] = $firstSMA;
+    
+        // Calcolo delle SMA successive
+        for ($i = $period; $i < count($prices); $i++) {
+            $nextSMA = $smaBuffer[$i - $period] + ($prices[$i] - $prices[$i - $period]) / $period;
+            $smaBuffer[] = $nextSMA;
+        }
+    
+        // Ritorna l'ultimo valore calcolato della SMA
+        return end($smaBuffer);
+    }
+        
+    
     public function calculateRSI($prices, $period) {
-        $gains = 0;
-        $losses = 0;
-
-        for ($i = 1; $i < count($prices); $i++) {
+        if (count($prices) < $period) {
+            throw new InvalidArgumentException("Non ci sono abbastanza dati per calcolare l'RSI.");
+        }
+    
+        // Inizializzazione
+        $gains = [];
+        $losses = [];
+        $rsiValues = [];
+    
+        // Calcola i guadagni e le perdite iniziali
+        for ($i = 1; $i <= $period; $i++) {
             $change = $prices[$i] - $prices[$i - 1];
             if ($change > 0) {
-                $gains += $change;
+                $gains[] = $change;
+                $losses[] = 0;
             } else {
-                $losses -= $change;
+                $gains[] = 0;
+                $losses[] = abs($change);
             }
         }
-
-        $averageGain = $gains / $period;
-        $averageLoss = $losses / $period;
+    
+        // Calcola la media iniziale dei guadagni e delle perdite
+        $averageGain = array_sum($gains) / $period;
+        $averageLoss = array_sum($losses) / $period;
+    
+        // Calcola il primo RSI
         if ($averageLoss == 0) {
-            return 100;
+            $rsiValues[] = 100;
+        } else {
+            $rs = $averageGain / $averageLoss;
+            $rsiValues[] = 100 - (100 / (1 + $rs));
         }
-
-        $rs = $averageGain / $averageLoss;
-        $rsi = 100 - (100 / (1 + $rs));
-
-        return $rsi;
+    
+        // Calcolo dei successivi RSI
+        for ($i = $period + 1; $i < count($prices); $i++) {
+            $change = $prices[$i] - $prices[$i - 1];
+            $gain = $change > 0 ? $change : 0;
+            $loss = $change < 0 ? abs($change) : 0;
+    
+            // Calcola le medie mobili esponenziali
+            $averageGain = ($averageGain * ($period - 1) + $gain) / $period;
+            $averageLoss = ($averageLoss * ($period - 1) + $loss) / $period;
+    
+            // Calcola l'RS e il RSI
+            if ($averageLoss == 0) {
+                $rsiValues[] = 100;
+            } else {
+                $rs = $averageGain / $averageLoss;
+                $rsiValues[] = 100 - (100 / (1 + $rs));
+            }
+        }
+    
+        // Restituisci l'ultimo valore RSI calcolato
+        return round(end($rsiValues), 2);
     }
-
+            
     public function WaveTrendLB($istanceKey, $symbol, $Clenght, $Alenght, $ObLevel1, $ObLevel2, $OsLevel1, $OsLevel2){
 
         // Recupera la data o il timestamp della candela con `first` a `true`
@@ -243,3 +366,4 @@ class TradingHandler
     }
 
 }
+
