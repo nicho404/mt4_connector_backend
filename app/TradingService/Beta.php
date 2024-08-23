@@ -85,7 +85,9 @@ class Beta extends TradingHandler
 
         // Verifica se c'è stato un cambio di candela
         if ($this->lastCandle === null || $this->hasCandleChanged($newCandle, $this->lastCandle)) {
+
             if ($this->lastCandle !== null) {
+
                 Log::info('Cambio candela rilevato');
 
                 // Aggiorna l'ultima candela
@@ -98,12 +100,13 @@ class Beta extends TradingHandler
                     $this->stopEntry = true;
                     $this->break_ema_check = 1;
                     $this->side = "BUY";
-                    Log::info('Direzione del breakout: LONG');
+                    Log::warning('Direzione del breakout: LONG');
+
                 } elseif ($break_direction === "SHORT" && !$this->stopEntry) {
                     $this->stopEntry = true;
                     $this->break_ema_check = 1;
                     $this->side = "SELL";
-                    Log::info('Direzione del breakout: SHORT');
+                    Log::warning('Direzione del breakout: SHORT');
                 }
 
                 // Gestisci i passi per la strategia
@@ -151,12 +154,12 @@ class Beta extends TradingHandler
 
         if ($side === "BUY") {
             if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-                Log::info('Condizioni per BUY soddisfatte: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+                Log::warning('Condizioni per BUY soddisfatte: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
                 return true;
             }
         } elseif ($side === "SELL") {
             if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-                Log::info('Condizioni per SELL soddisfatte: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+                Log::warning('Condizioni per SELL soddisfatte: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
                 return true;
             }
         }
@@ -169,12 +172,12 @@ class Beta extends TradingHandler
         if ($this->checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last)) {
             $this->stopEntry = false;
             $this->break_ema_check = 0;
-            Log::info("Entry valida - $side - RSI < {$this->level_rsi}");
+            Log::warning("Entry valida - $side - RSI < {$this->level_rsi}");
             // $this->trade($side);
         } else {
             $this->break_ema_check = $step + 1;
             $this->stopEntry = false;
-            Log::info("Controllo non valido N°$step");
+            Log::warning("Controllo non valido N°$step");
         }
     }
 }

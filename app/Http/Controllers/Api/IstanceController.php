@@ -37,38 +37,43 @@ class IstanceController extends Controller
     }
 
     public function createIstance($istance_name)
-{
-    // Tentativo di generare una chiave unica
-    try {
-        // Genera una chiave casuale di 60 caratteri
-        $license_key = $this->generateRandomKey(60);
+    {
 
-        // Verifica l'univocità della chiave di licenza
-        while ($this->isLicenseKeyExists($license_key)) {
+        // Tentativo di generare una chiave unica
+        try {
+
+            // Genera una chiave casuale di 60 caratteri
             $license_key = $this->generateRandomKey(60);
-        }
 
-        // Inserisci il nuovo record nella tabella 'istances'
-        DB::table('istances')->insert([
-            'license_name' => $istance_name,
-            'license_key' => $license_key,
-            'status' => false,
-        ]);
+            // Verifica l'univocità della chiave di licenza
+            while ($this->isLicenseKeyExists($license_key)) {
+                $license_key = $this->generateRandomKey(60);
+            }
 
-        // Ritorna una risposta JSON di successo
-        return response()->json([
-            'success' => true,
-            'message' => 'Instance created successfully',
-        ]);
-    } catch (\Exception $e) {
-        // Gestione dell'errore
-        return response()->json([
+            // Inserisci il nuovo record nella tabella 'istances'
+            DB::table('istances')->insert([
+                'license_name' => $istance_name,
+                'license_key' => $license_key,
+                'status' => false,
+            ]);
+
+            // Ritorna una risposta JSON di successo
+            return response()->json([
+                'success' => true,
+                'message' => 'Instance created successfully',
+            ]);
+
+        } catch (\Exception $e) {
+
+           // Gestione dell'errore
+           return response()->json([
             'success' => false,
             'message' => 'Failed to create instance',
             'error' => $e->getMessage(),
-        ], 500); // Codice di stato HTTP 500 per errore interno del server
+           ], 500); // Codice di stato HTTP 500 per errore interno del server
+           
+        }
     }
-}
      
 // public function status(Request $request)
 // {
@@ -147,7 +152,7 @@ public function market(Request $request)
     $jsonString = $request->getContent();
 
     // Log the incoming request
-    Log::info('Received market request:', ['request' => $jsonString]);
+//    Log::info('Received market request:', ['request' => $jsonString]);
 
     // Remove control characters from the JSON string
     $jsonStringCleaned = preg_replace('/[\x00-\x1F\x7F]/u', '', $jsonString);
@@ -354,7 +359,7 @@ public function candle(Request $request){
     $jsonString = $request->getContent();
 
     // Log the incoming request
-    Log::info('Received candle request:', ['request' => $jsonString]);
+//    Log::info('Received candle request:', ['request' => $jsonString]);
 
     // Remove control characters from the JSON string
     $jsonStringCleaned = preg_replace('/[\x00-\x1F\x7F]/u', '', $jsonString);
