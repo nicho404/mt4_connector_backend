@@ -68,6 +68,20 @@ class TradingHandler
 
     }
 
+    public function modifyOrder($istanceKey, $entry_price, $ticket, $tp, $sl)
+    {
+        DB::table('command_queues')->insert([
+            'istance_key' => $istanceKey,
+            'cmd_name' => 'modify',
+            'price' => $entry_price,
+            'ticket' => $ticket,
+            'tp' => $tp,
+            'sl' => $sl,
+            'created_at' => Carbon::now('Europe/Rome')
+        ]);
+
+    }
+
     public function closeOrder($istanceKey, $ticket, $lot)
     {
         DB::table('command_queues')->insert([

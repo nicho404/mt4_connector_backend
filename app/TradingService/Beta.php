@@ -173,6 +173,10 @@ class Beta extends TradingHandler
             $this->stopEntry = false;
             $this->break_ema_check = 0;
             Log::warning("Entry valida - $side - RSI < {$this->level_rsi}");
+            if(IsOrderExist($istanceKey, $timeframe, $symbol, $cmd, $lot, $side, $tp, $sl, $comment, $magnum))
+            {
+                $this->placeOrder($istanceKey, 0.1, $side, $tp, $sl, "Beta PHP Baby", 1);
+            }
             // $this->trade($side);
         } else {
             $this->break_ema_check = $step + 1;
