@@ -131,23 +131,19 @@ class TradingHandler
             return true;
         }
     
-        // Confronta l'ID della nuova candela con quello dell'ultima candela salvata
-        if ($newCandle->id !== $lastCandle->id) {
+        // Confronta gli attributi significativi delle candele
+        if ($newCandle->open != $lastCandle['open'] ||
+            $newCandle->current_high != $lastCandle['current_high'] ||
+            $newCandle->current_low != $lastCandle['current_low'] ||
+            $newCandle->current_bid != $lastCandle['current_bid'] // Aggiunto il confronto con il prezzo di chiusura
+        ) {
             return true;
         }
     
-        // Confronta i valori significativi delle candele
-        if ($newCandle->open !== $lastCandle->open ||
-            $newCandle->close !== $lastCandle->close ||
-            $newCandle->high !== $lastCandle->high ||
-            $newCandle->low !== $lastCandle->low) {
-            return true;
-        }
-    
-        // Se tutti i controlli precedenti falliscono, significa che la candela non è cambiata
+        // Se tutti i confronti corrispondono, la candela non è cambiata
         return false;
     }
-    
+        
 
     public function getLatestCandle($symbol, $timeframe, $istanceKey) {
         // Recupera l'ultima candela disponibile dal database

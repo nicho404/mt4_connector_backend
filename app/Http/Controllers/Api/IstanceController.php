@@ -14,8 +14,6 @@ use Illuminate\Support\Facades\DB;
 class IstanceController extends Controller
 
 {
-    // Dichiarazione della variabile statica
-    private static $betaInstances = [];
 
     public function index(){
         $istances = DB::table('istances')->get();
@@ -75,77 +73,6 @@ class IstanceController extends Controller
         }
     }
      
-// public function status(Request $request)
-// {
-//     // Leggi il contenuto della richiesta come stringa JSON
-//     $jsonString = $request->getContent();
-
-//     // Log the incoming request
-//     Log::info('Received status request:', ['request' => $jsonString]);
-
-//     // Remove control characters from the JSON string
-//     $jsonStringCleaned = preg_replace('/[\x00-\x1F\x7F]/u', '', $jsonString);
-
-//     // Decodifica la stringa JSON in un array associativo
-//     $data = json_decode($jsonStringCleaned, true);
-
-//     // Check if json_decode was successful
-//     if (json_last_error() !== JSON_ERROR_NONE) {
-//         Log::error('JSON decode error: ' . json_last_error_msg());
-
-//         return response()->json([
-//             'success' => false,
-//             'message' => 'Invalid JSON format.'
-//         ], 400);
-//     }
-
-//     // Log the decoded data
-//     Log::info('Decoded JSON data:', ['data' => $data]);
-
-//     // Estrai il license_key e la version dall'array associativo
-//     $license_key = $data['license_key'] ?? null;
-//     $version = $data['version'] ?? null;
-
-//     // Controlla se license_key è presente
-//     if (!$license_key) {
-//         Log::warning('License key is missing in the request.');
-
-//         return response()->json([
-//             'success' => false,
-//             'message' => 'License key is required.'
-//         ], 400);
-//     }
-
-//     // Cerca il record con license_key uguale a $license_key
-//     $istance = DB::table('istances')->where('license_key', $license_key)->first();
-
-//     // Controlla se il record esiste
-//     if ($istance) {
-//         // Aggiorna la colonna status a true e last_contact con la data attuale
-//         DB::table('istances')->where('license_key', $license_key)->update([
-//             'status' => true,
-//             'last_contact' => Carbon::now('Europe/Rome'), // Usa Carbon per ottenere la data attuale
-//             'version' => $version
-//         ]);
-
-//         Log::info('Status and last_contact updated successfully for license key: ' . $license_key);
-
-//         return response()->json([
-//             'success' => true,
-//             'message' => 'Status and last_contact updated successfully.',
-//             'istance' => $istance
-//         ]);
-//     } else {
-//         Log::error('Istance not found for license key: ' . $license_key);
-
-//         // Se il record non esiste, ritorna un messaggio di errore
-//         return response()->json([
-//             'success' => false,
-//             'message' => 'Istance not found.'
-//         ], 404);
-//     }
-// }
-
 public function market(Request $request)
 {
     // Leggi il contenuto della richiesta come stringa JSON
@@ -204,28 +131,6 @@ public function market(Request $request)
              'version' => "JUppilulloYopaYey"
          ]);
 
-        // Creare una nuova entità simble_datas
-        // if ($symbol_data) {
-        //     DB::table('simble_datas')->insert([
-        //         'istance_key' => $license_key,
-        //         'simble_name' => $symbol_data['symbol_name'] ?? null,
-        //         'current_ask' => $symbol_data['current_ask'] ?? null,
-        //         'current_bid' => $symbol_data['current_bid'] ?? null,
-        //         'current_spread' => $symbol_data['current_spread'] ?? null,
-        //         'trading_is_active' => $symbol_data['trading_is_active'] ?? null,
-        //         'time_frame' => $symbol_data['time_frame'] ?? null,
-        //         'open' => $symbol_data['open'] ?? null,
-        //         'current_high' => $symbol_data['current_high'] ?? null,
-        //         'current_low' => $symbol_data['current_low'] ?? null,
-        //         'past_candle_json' => $symbol_data['past_candle_json'] ?? null,
-        //         'created_at' => Carbon::now('Europe/Rome')
-        //     ]);
-
-        //     // Log the insertion
-        //     Log::info('Symbol data inserted successfully:', ['license_key' => $license_key]);
-        // } else {
-        //     Log::warning('Symbol data is missing in the request:', ['license_key' => $license_key]);
-        // }
 
         Log::info('checking for account data:', ['license_key' => $license_key]);
 
@@ -353,15 +258,12 @@ public function market(Request $request)
     ], 404);
 }
 
-public function candle(Request $request){
-
+public function candle(Request $request)
+{
     // Leggi il contenuto della richiesta come stringa JSON
     $jsonString = $request->getContent();
 
-    // Log the incoming request
-//    Log::info('Received candle request:', ['request' => $jsonString]);
-
-    // Remove control characters from the JSON string
+    // Rimuovi i caratteri di controllo dalla stringa JSON
     $jsonStringCleaned = preg_replace('/[\x00-\x1F\x7F]/u', '', $jsonString);
 
     // Decodifica la stringa JSON in un array associativo
@@ -370,15 +272,16 @@ public function candle(Request $request){
     $symbol_data = $data['symbol_data'] ?? null;
     $license_key = $data['license_key'] ?? null;
 
+    // Ottieni la chiave per la cache basata sulla license_key
+    $cacheKey = 'beta_instance_' . $license_key;
+
+    // Cerca il record con license_key nella tabella 'istances'
     $istance = DB::table('istances')->where('license_key', $license_key)->first();
 
     // Controlla se il record esiste
     if ($istance) {
-
         if ($symbol_data) {
-
             if ($symbol_data['first'] ?? false) {
-
                 DB::table('simble_datas')
                     ->where(function ($query) use ($symbol_data, $license_key) {
                         $query->where('simble_name', $symbol_data['symbol_name'])
@@ -386,7 +289,6 @@ public function candle(Request $request){
                     })
                     ->orWhere('simble_name', 'no_symbol_active')
                     ->delete();
-
             }
 
             DB::table('simble_datas')->insert([
@@ -404,48 +306,65 @@ public function candle(Request $request){
                 'first' => $symbol_data['first'] ?? null,
                 'created_at' => Carbon::now('Europe/Rome')
             ]);
-    
-            // Log the insertion
-            Log::info('Symbol data inserted successfully:', ['license_key' => $license_key]);
-    
-            //ritorno dei settings dell'istanza
-            $existingRecord = DB::table('istance_settings')
-                    ->where('istance_key', $license_key)
-                    ->first();
 
-                    $timeframe = $existingRecord->timeframe;
-                    settype($timeframe, "integer");
-                    $market_refresh_rate = $existingRecord->market_refresh_rate;
-                    settype($market_refresh_rate, "integer");
+            // Controlla se l'istanza di Beta è già in cache
+            $strategy = Cache::get($cacheKey);
 
-            // Verifica se esiste già un'istanza per questa chiave
-            if (!isset(self::$betaInstances[$license_key])) {
-                // Se non esiste, crea una nuova istanza di Beta
-                self::$betaInstances[$license_key] = new Beta($license_key);
+            if ($strategy === null || !($strategy instanceof Beta)) {
+                // Se non esiste o non è un'istanza valida di Beta, crea una nuova istanza
+                Log::info('IstanceController - Creazione nuova istanza di Beta e memorizzazione in cache');
+                $strategy = new Beta($license_key); // Assicurati di importare la classe Beta
+                Cache::put($cacheKey, $strategy, now()->addHour()); // La cache dura per un'ora
+            } else {
+                Log::info('IstanceController - Beta recuperata dalla cache');
             }
 
-            // Recupera l'istanza associata alla chiave
-            $strategy = self::$betaInstances[$license_key];
+            // Esegui la logica specifica di Beta
+            if ($strategy instanceof Beta) {
+                $strategy->execute($symbol_data["symbol_name"], $license_key, $symbol_data["time_frame"]);
+            } else {
+                Log::error('IstanceController - L\'oggetto recuperato dalla cache non è un\'istanza valida di Beta.');
+            }
 
-        // Esegui la strategia con i dati della candela
-        $strategy->execute($symbol_data["symbol_name"], $license_key, $symbol_data["time_frame"]);
-            return response()->json([
-                'success' => true,
-                'symbol' => $existingRecord->active_simble,
-                'timeframe' => $timeframe,
-                'market' => $market_refresh_rate
-            ]);
+            // Recupera i settings dell'istanza
+            $existingRecord = DB::table('istance_settings')
+                ->where('istance_key', $license_key)
+                ->first();
 
+            if ($existingRecord) {
+                $timeframe = (int) $existingRecord->timeframe;
+                $market_refresh_rate = (int) $existingRecord->market_refresh_rate;
+
+                return response()->json([
+                    'success' => true,
+                    'symbol' => $existingRecord->active_simble,
+                    'timeframe' => $timeframe,
+                    'market' => $market_refresh_rate
+                ]);
+            } else {
+                Log::warning('Settings for the instance not found:', ['license_key' => $license_key]);
+                return response()->json([
+                    'success' => false,
+                    'message' => "Instance settings not found.",
+                ]);
+            }
         } else {
             Log::warning('Symbol data is missing in the request:', ['license_key' => $license_key]);
-        }   return response()->json([
+        }
+
+        return response()->json([
             'success' => false,
-            'message' => "simble data not recognize",
+            'message' => "Symbol data not recognized",
         ]);
-    }else{
-        Log::info('no license found!');
+    } else {
+        Log::info('No license found for license_key:', ['license_key' => $license_key]);
+        return response()->json([
+            'success' => false,
+            'message' => "License key not found",
+        ]);
     }
 }
+
 
 
 public function history(Request $request)
