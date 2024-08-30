@@ -124,26 +124,19 @@ class TradingHandler
         return $symbol_precision[$symbol] ?? 4; // Default a 4 se non trovato
     }
 
-    public function hasCandleChanged($newCandle, $lastCandle) {
-        // Controlla se esiste una candela precedente
-        if (!$lastCandle) {
-            // Se non esiste una candela precedente, considera la nuova come diversa
-            return true;
-        }
-    
-        // Confronta gli attributi significativi delle candele
-        if ($newCandle->open != $lastCandle['open'] ||
-            $newCandle->current_high != $lastCandle['current_high'] ||
-            $newCandle->current_low != $lastCandle['current_low'] ||
-            $newCandle->current_bid != $lastCandle['current_bid'] // Aggiunto il confronto con il prezzo di chiusura
-        ) {
-            return true;
-        }
-    
-        // Se tutti i confronti corrispondono, la candela non è cambiata
-        return false;
+    public function hasCandleChanged($lastClosedCandle, $newLastCandle)
+    {
+        return $lastClosedCandle->id !== $newLastCandle->id ||
+               $lastClosedCandle->simble_name !== $newLastCandle->simble_name ||
+               $lastClosedCandle->time_frame !== $newLastCandle->time_frame ||
+               $lastClosedCandle->open !== $newLastCandle->open ||
+               $lastClosedCandle->current_ask !== $newLastCandle->current_ask ||
+               $lastClosedCandle->current_bid !== $newLastCandle->current_bid ||
+               $lastClosedCandle->current_spread !== $newLastCandle->current_spread ||
+               $lastClosedCandle->current_high !== $newLastCandle->current_high ||
+               $lastClosedCandle->current_low !== $newLastCandle->current_low;
     }
-        
+            
 
     public function getLatestCandle($symbol, $timeframe, $istanceKey) {
         // Recupera l'ultima candela disponibile dal database
@@ -162,13 +155,13 @@ class TradingHandler
         return $latestCandle;
     }
     
-    public function calculateEMA($prices, $period) {
+    public function calculateEMA($prices, $period, $istanceKey) {
 
         $emaBuffer = [];
 
         // Assicurati che ci siano almeno $period valori disponibili
         if (count($prices) < $period) {
-            throw new InvalidArgumentException("Non ci sono abbastanza dati per calcolare l'EMA.");
+            throw new CustomException("Non ci sono abbastanza dati per calcolare l'EMA.", $istanceKey);
         }
     
         // Calcolo del fattore di lisciatura (Smooth Factor)
@@ -201,12 +194,12 @@ class TradingHandler
         return end($emaBuffer);
     }
     
-    public function calculateSMA($prices, $period) {
+    public function calculateSMA($prices, $period, $istanceKey) {
         $smaBuffer = [];
     
         // Assicurati che ci siano almeno $period valori disponibili
         if (count($prices) < $period) {
-            throw new InvalidArgumentException("Non ci sono abbastanza dati per calcolare la SMA.");
+            throw new CustomException("Non ci sono abbastanza dati per calcolare la SMA.", $istanceKey);
         }
     
         // Calcola il primo valore della SMA
