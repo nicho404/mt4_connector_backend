@@ -37,19 +37,6 @@ class Beta extends TradingHandler
         // Definisci la chiave di cache specifica per l'istanza
         $cacheKey = 'beta_instance_' . $istanceKey . '_lastClosedCandle';
 
-        // Recupera la nuova candela chiusa dal DB
-        $new_last_candle = DB::table('simble_datas')
-            ->where('istance_key', $istanceKey)
-            ->where('first', true)
-            ->where('simble_name', $symbol)
-            ->where('time_frame', $timeframe)
-            ->orderBy('id', 'desc')
-            ->first();
-
-        if (!$new_last_candle) {
-            throw new CustomException('Nessun record trovato in simble_datas.', $istanceKey);
-        }
-
         // Recupera l'ultima candela chiusa dalla cache
         if (Cache::has($cacheKey)) {
             $cacheData = Cache::get($cacheKey);
@@ -57,6 +44,8 @@ class Beta extends TradingHandler
             $this->break_ema_check = $cacheData['break_ema_check'] ?? 0;
         }
 
+        // Recupera la nuova candela chiusa dal DB
+        $new_last_candle = $this->getLatestCandle($symbol, $timeframe, $istanceKey);
 
         // Verifica se c'è stato un cambio di candela
         if ($this->lastClosedCandle === null || $this->hasCandleChanged($this->lastClosedCandle, $new_last_candle)) {
@@ -80,6 +69,7 @@ class Beta extends TradingHandler
             ], now()->addMinutes($timeframe));
 
 
+            // Recupera Past Candle JSON e decod.
             $past_candle_json = $new_last_candle->past_candle_json;
             $past_candles = json_decode($past_candle_json, true);
     
@@ -89,46 +79,78 @@ class Beta extends TradingHandler
     
             // Verifica se ci sono abbastanza candele
             $required_candles = max($this->period_ema, $this->period_rsi);
+
             if (count($past_candles) < $required_candles) {
                 throw new CustomException('Non ci sono abbastanza candele per calcolare l\'EMA o l\'RSI.', $istanceKey);
             }
-    
-            // Estrai i valori di open e close
-            $close_values = [];
-            $open_values = [];
-            $new_candle = null;
-    
-            foreach ($past_candles as $index => $candle) {
-                if (isset($candle['close']) && isset($candle['open'])) {
-                    if ($index === 0) {
-                        $new_candle = $candle; // Nuova ultima candela
-                    }
-                    $close_values[] = $candle['close'];
-                    $open_values[] = $candle['open'];
-                }
-            }
 
-            $reverse_close_values = array_reverse($close_values);
+            // Estrai i valori di chiusura e apertura
+            $close_values = $this->getCandleClosePrices($past_candles);
+            $open_values = $this->getCandleOpenPrices($past_candles);
+
+            $reverse_close_values = array_reverse($close_values); //invertiamo ordine array per indicatori
+
+            // calcola i valori di EMA e RSI
             $ema = $this->calculateEMA($reverse_close_values, $this->period_ema, $istanceKey);
             $rsi = $this->calculateRSI($reverse_close_values, $this->period_rsi, $istanceKey);
 
             $open_last = $open_values[0];
             $close_last = $close_values[0];
-            Log::info('Last open: ' . $open_last . ' e lats close: ' . $close_last);
+            Log::info('ema: ' . $ema . ' e rsi: ' . $rsi . ' - Last open: ' . $open_last . ' e last close: ' . $close_last);
 
             // Verifica se c'è stata una rottura e determina la direzione
             $break_direction = $this->checkBreak($ema, $open_last, $close_last);
 
-            if ($break_direction === "LONG" && !$this->stopEntry) {
+            // Rilevato rimbaldo invalidante
+            if(($break_direction ==="LONG" && !$this->stopEntry) or ($break_direction ==="SHORT" && !$this->stopEntry))
+            {
+
+                $this->stopEntry = false;
+                Log::warning("Invalid Break, rimbalzo dopo Valid Break");
+
+                $this->break_ema_check = 0;
+                Cache::put($cacheKey, [
+                    'break_ema_check' => $this->break_ema_check,
+                ], now()->addMinutes($timeframe));
+
+            }
+            
+            //rilevato corretto break LONG
+            elseif ($break_direction === "LONG" && $this->stopEntry) {
                 $this->stopEntry = true;
+
+                $this->break_ema_check = 1;
+                Cache::put($cacheKey, [
+                    'break_ema_check' => $this->break_ema_check,
+                ], now()->addMinutes($timeframe));
+
+
                 $this->side = "BUY";
                 Log::warning('Break found: LONG');
+            } 
 
-            } elseif ($break_direction === "SHORT" && !$this->stopEntry) {
+            //rilevato corretto break LONG
+            elseif ($break_direction === "SHORT" && $this->stopEntry) {
                 $this->stopEntry = true;
+
+                $this->break_ema_check = 1;
+                Cache::put($cacheKey, [
+                    'break_ema_check' => $this->break_ema_check,
+                ], now()->addMinutes($timeframe));
+
+
                 $this->side = "SELL";
                 Log::warning('Break found: SHORT');
             }
+
+
+            // Recupera n° step dalla cache
+            if (Cache::has($cacheKey)) {
+                $cacheData = Cache::get($cacheKey);
+                $this->break_ema_check = $cacheData['break_ema_check'] ?? 0;
+                Log::info('n° step ottenuto da cache prima di controllo switch: ' . $this->break_ema_check);
+            }
+
 
             // Gestisci i passi per la strategia
             switch ($this->break_ema_check) {
@@ -140,6 +162,7 @@ class Beta extends TradingHandler
                     break;
                 case 3:
                     $this->handleCheckStep($cacheKey, $timeframe, $istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, $this->break_ema_check);
+                    Log::warning('tentativi max raggiunti, no entry valid :(');
                     break;
             }
         } else {
@@ -148,28 +171,29 @@ class Beta extends TradingHandler
     }
 
     private function checkBreak($ema, $open_last, $close_last) {
-        if ($close_last > $ema && $open_last > $ema) {
+        if ($close_last < $ema && $open_last > $ema) {
             return "LONG";
-        } elseif ($close_last < $ema && $open_last < $ema) {
+        } elseif ($close_last > $ema && $open_last < $ema) {
             return "SHORT";
         }
         return "NONE";
     }
 
     private function checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last) {
-        $rsi = $this->calculateRSI($close_values, $this->period_rsi);
-        $tp_distance = abs($ema - $close_last);
+        
+        // $rsi = $this->calculateRSI($close_values, $this->period_rsi);
+        // $tp_distance = abs($ema - $close_last);
 
-        if ($side === "BUY") {
-            if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-                Log::warning('Entry valid LONG: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+        if ($side === "BUY" && ($open_last > $close_last )) {
+            // if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+            //     Log::warning('Entry valid LONG: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
                 return true;
-            }
-        } elseif ($side === "SELL") {
-            if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-                Log::warning('Entry valid SHORT: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+            //}
+        } elseif ($side === "SELL" && ($open_last < $close_last )) {
+            // if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+            //     Log::warning('Entry valid SHORT: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
                 return true;
-            }
+            //}
         }
 
         return false;
@@ -187,7 +211,7 @@ class Beta extends TradingHandler
             Cache::put($cacheKey, [
                 'break_ema_check' => $this->break_ema_check, 
             ], now()->addMinutes($cacheDuration));
-            $this->stopEntry = false;
+            $this->stopEntry = true;
             Log::warning("Controllo non valido N°$step");
         }
     }

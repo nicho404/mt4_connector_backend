@@ -154,6 +154,32 @@ class TradingHandler
     
         return $latestCandle;
     }
+
+    public function GetCandleClosePrices(array $past_candles)
+    {
+        // Estrai i valori di chiusura (close)
+        $close_values = [];
+        foreach ($past_candles as $candle) {
+            if (isset($candle['close'])) {
+                $close_values[] = $candle['close'];
+            }
+        }
+
+        return $close_values;
+    }
+
+    public function GetCandleOpenPrices(array $past_candles)
+    {
+        // Estrai i valori di apertura (open)
+        $open_values = [];
+        foreach ($past_candles as $candle) {
+            if (isset($candle['open'])) {
+                $open_values[] = $candle['open'];
+            }
+        }
+
+        return $open_values;
+    }
     
     public function calculateEMA($prices, $period, $istanceKey) {
 
