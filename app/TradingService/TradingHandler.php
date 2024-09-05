@@ -300,6 +300,32 @@ class TradingHandler
         return round(end($rsiValues), 2);
     }
             
+    public function calculateLotsize($balance, $RiskPercent, $tickValue, $stop_loss_points, $symbol){
+        $lotsize = 0;
+
+        //RISK MANAGEMENT
+        $riskAmount = $balance * $RiskPercent / 100;
+
+        //Se il broker utilizza 2,3 o 5 decimali, allora tickValue è il valore di una point invece di un pip
+        if(getDecimalPrecision($symbol) === 2 || getDecimalPrecision($symbol) === 3 || getDecimalPrecision($symbol) === 5){
+            $tickValue = $tickValue * 10;
+        }
+
+        // Zero DIVIDE Exception
+        if($StopLossPoints === 0 || $tickValue === 0){
+            Log::warning("Error in EA LOT Management - ZERO DIVIDE ERROR - Min Lot SET");
+            
+            return $lotsize;
+        }
+            
+        $lotsize = ($riskAmount / (($StopLossPoints/10) * $tickValue));
+        #LotSize = MathRound(LotSize / MarketInfo(Symbol(), MODE_LOTSTEP)) * MarketInfo(Symbol(), MODE_LOTSTEP); --> arrotonda
+
+        return $lotsize;
+    }
+
+    ####################### FINE FUNZIONI VALIDATE #######################
+    
     public function WaveTrendLB($istanceKey, $symbol, $Clenght, $Alenght, $ObLevel1, $ObLevel2, $OsLevel1, $OsLevel2){
 
         // Recupera la data o il timestamp della candela con `first` a `true`
