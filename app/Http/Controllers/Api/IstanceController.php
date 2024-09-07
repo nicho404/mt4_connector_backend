@@ -98,7 +98,7 @@ public function market(Request $request)
     }
 
     // Log the decoded data
-    Log::info('Decoded JSON data:', ['data' => $data]);
+#    Log::info('Decoded JSON data:', ['data' => $data]);
 
     // Estrai il license_key e la version dall'array associativo
     $license_key = $data['license_key'] ?? null;
@@ -132,10 +132,10 @@ public function market(Request $request)
          ]);
 
 
-        Log::info('checking for account data:', ['license_key' => $license_key]);
+#        Log::info('checking for account data:', ['license_key' => $license_key]);
 
         if ($account_data) {
-            Log::info('found account data:', ['license_key' => $license_key]);
+#            Log::info('found account data:', ['license_key' => $license_key]);
             DB::table('account_datas')->insert([
                 'istance_key' => $license_key,
                 'profit' => $account_data['profit'],
@@ -198,7 +198,7 @@ public function market(Request $request)
                 }
             }
         } else {
-            Log::info('not found open_positions:', ['license_key' => $license_key]);
+#            Log::info('not found open_positions:', ['license_key' => $license_key]);
         }
 
         Log::info('searching for commands:', ['license_key' => $license_key]);
@@ -392,7 +392,7 @@ public function history(Request $request)
     }
 
     // Log the decoded data
-    Log::info('Decoded JSON data:', ['data' => $data]);
+#    Log::info('Decoded JSON data:', ['data' => $data]);
 
     // Estrai il license_key e la version dall'array associativo
     $license_key = $data['license_key'] ?? null;

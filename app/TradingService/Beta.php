@@ -10,7 +10,7 @@ use App\Exceptions\CustomException;
 
 class Beta extends TradingHandler
 {
-    private $period_ema = 200;
+    private $period_ema = 150;
     private $period_rsi = 20;
     private $level_rsi = 50;
     private $stop_loss_points = 50;
@@ -40,6 +40,8 @@ class Beta extends TradingHandler
         // Definisci la chiave di cache specifica per l'istanza
         $cacheKey = 'beta_instance_' . $istanceKey . '_lastClosedCandle';
 
+
+
         // Recupera l'ultima candela chiusa dalla cache
         if (Cache::has($cacheKey)) {
             $cacheData = Cache::get($cacheKey);
@@ -66,6 +68,12 @@ class Beta extends TradingHandler
         if ($this->lastClosedCandle === null || $this->hasCandleChanged($this->lastClosedCandle, $new_last_candle)) {
             Log::info('Cambio candela rilevato');
 
+            // Log delle candele old e new
+            if ($this->lastClosedCandle !== null) {
+            Log::info('Old Candle: ' . $this->formatCandleData($this->lastClosedCandle));
+            }
+            Log::info('New Candle: ' . $this->formatCandleData($new_last_candle));
+
             // Aggiorna lastClosedCandle con new_last_candle
             $this->lastClosedCandle = $new_last_candle;
 
@@ -81,7 +89,7 @@ class Beta extends TradingHandler
                 'time_frame' => $new_last_candle->time_frame,
                 'lastClosedCandle' => $new_last_candle,
                 //'break_ema_check' => $this->break_ema_check,
-            ], now()->addMinutes($timeframe));
+            ], now()->addMinutes($timeframe*2));
 
 
             // Recupera Past Candle JSON e decod.
@@ -111,10 +119,10 @@ class Beta extends TradingHandler
 
             $open_last = $open_values[0];
             $close_last = $close_values[0];
-            Log::info('ema: ' . $ema . ' e rsi: ' . $rsi . ' - Last open: ' . $open_last . ' e last close: ' . $close_last);
+            Log::info('ema ' . $this->period_ema . ': ' . $ema . ' e rsi: ' . $rsi . ' - Last open: ' . $open_last . ' e last close: ' . $close_last);
 
             // Verifica se c'è stata una rottura e determina la direzione
-            $break_direction = $this->checkBreak($ema, $open_last, $close_last);
+            $this->break_direction = $this->checkBreak($ema, $open_last, $close_last);
             // Cache::put($cacheKey, [
 
             //     'break_direction' => $this->break_direction
@@ -122,44 +130,55 @@ class Beta extends TradingHandler
             // ])
 
             // Rilevato rimbaldo invalidante
-            if(($break_direction ==="LONG" && $this->stopEntry === true) or ($break_direction ==="SHORT" && $this->stopEntry === true)) {
+            if(($this->break_direction ==="LONG" && $this->stopEntry === true) or ($this->break_direction ==="SHORT" && $this->stopEntry === true)) {
 
                 $this->stopEntry = false;
-                Log::warning("Invalid Break, rimbalzo dopo Valid Break " . $break_direction);
+
+                Log::debug("Invalid Break, rimbalzo dopo Valid Break " . $this->break_direction);
 
                 $this->break_ema_check = 0;
                 Cache::put($cacheKey, [
+                    'stopEntry' => $this->stopEntry,
                     'break_ema_check' => $this->break_ema_check,
-                ], now()->addMinutes($timeframe));
+                ], now()->addMinutes($timeframe*2));
 
             }
+
             
             // se si verifica la condizione di rottura EMA x LONG
-            elseif ($break_direction === "LONG" && $this->stopEntry === false) {
+            elseif ($this->break_direction === "LONG" && $this->stopEntry === false) {
                 $this->stopEntry = true;
 
                 $this->break_ema_check = 1;
-                Cache::put($cacheKey, [
-                    'break_ema_check' => $this->break_ema_check,
-                ], now()->addMinutes($timeframe));
-
-
                 $this->side = "BUY";
-                Log::warning('Break found: LONG');
+
+                Cache::put($cacheKey, [
+                    'stopEntry' => $this->stopEntry,
+                    'break_ema_check' => $this->break_ema_check,
+                    'side' => $this->side,                                  ####################
+                ], now()->addMinutes($timeframe*2));
+
+
+                
+                Log::debug('Break found: LONG');
             } 
 
             // se si verifica la condizione di rottura EMA x SHORT
-            elseif ($break_direction === "SHORT" && $this->stopEntry === false) {
+            elseif ($this->break_direction === "SHORT" && $this->stopEntry === false) {
                 $this->stopEntry = true;
 
                 $this->break_ema_check = 1;
-                Cache::put($cacheKey, [
-                    'break_ema_check' => $this->break_ema_check,
-                ], now()->addMinutes($timeframe));
-
-
                 $this->side = "SELL";
-                Log::warning('Break found: SHORT');
+
+                Cache::put($cacheKey, [
+                    'stopEntry' => $this->stopEntry,
+                    'break_ema_check' => $this->break_ema_check,
+                    'side' => $this->side,                                  ########################
+                ], now()->addMinutes($timeframe*2));
+
+
+                
+                Log::debug('Break found: SHORT');
             }
 
 
@@ -167,152 +186,192 @@ class Beta extends TradingHandler
             if (Cache::has($cacheKey)) {
                 $cacheData = Cache::get($cacheKey);
                 $this->break_ema_check = $cacheData['break_ema_check'] ?? 0;
-                Log::info('n° step ottenuto da cache: ' . $this->break_ema_check);
+                $this->side = $cacheData['side'] ?? null;
+
+                Log::info('n° step ottenuto da cache: ' . $this->break_ema_check . ' e side: ' . $this->side);
             }
 
             #calculateLotsize($balance, $RiskPercent, $tickValue, $stop_loss_points, $symbol) --> calcola lottaggio operazione, manca RiskPErcent, TickValue e Balance
 
             // 1° CHECK BUY
-            else if ($break_ema_check === 1 && $side === "BUY") {
+            else if ($this->break_ema_check === 1 && $this->side === "BUY") {
 
-                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
-                    $this->StopEntry = false;
+                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Long - RSI < " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Long - RSI < " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // passiamo al controllo n°2
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 2;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°1");
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°1");
                 }
             }
 
             // 1° CHECK SELL
-            else if ($break_ema_check === 1 && $side === "SELL") {
-                if (($rsi > $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
+            else if ($this->break_ema_check === 1 && $this->side === "SELL") {
+                if (($rsi > $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
 
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Short - RSI > " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Short - RSI > " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // passiamo al controllo n°2
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 2;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°1");
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°1");
                 }
             }    
 
             // 2° CHECK BUY
-            else if ($break_ema_check === 2 && $side === "BUY") {
+            else if ($this->break_ema_check === 2 && $this->side === "BUY") {
 
-                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
-                    $this->StopEntry = false;
+                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
+                    $this->stopEntry = false;
                     $this->break_ema_check = 3;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Long - RSI < " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Long - RSI < " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // passiamo al controllo n°3
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 3;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°2");
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°2");
                     }
             }
 
             // 2° CHECK SELL
-            else if ($break_ema_check === 2 && $side === "SELL") {
+            else if ($this->break_ema_check === 2 && $this->side === "SELL") {
 
-                if (($rsi > $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
-                    $this->StopEntry = false;
+                if (($rsi > $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
+                    $this->stopEntry = false;
                     $this->break_ema_check = 3;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Short - RSI > " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Short - RSI > " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // passiamo al controllo n°3
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 3;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°2");
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°2");
                     }
             }
 
             // 3° CHECK BUY
-            else if ($break_ema_check === 3 && $side === "BUY") {
+            else if ($this->break_ema_check === 3 && $this->side === "BUY") {
 
-                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
-                    $this->StopEntry = false;
+                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Long - RSI < " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Long - RSI < " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // Entry invalida
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°3 - no valid Entry found :(");
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°3 - no valid Entry found :(");
                 }
             }
 
             // 3° CHECK SELL
-            else if ($break_ema_check === 3 && $side === "SELL") {
+            else if ($this->break_ema_check === 3 && $this->side === "SELL") {
 
-                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last))) {
-                    $this->StopEntry = false;
+                if (($rsi < $level_rsi) && (CheckEntry($istanceKey, $ema, $close_values, $this->side, $close_last, $open_last))) {
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Entry valid - Short - RSI > " . $level_rsi);
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Entry valid - Short - RSI > " . $level_rsi);
                     //EFFETUA ORDINE
-                    Log::warning("TRADE APERTO"); 
+                    Log::debug("TRADE APERTO"); 
                     //Trade(side);}
 
                 }else{  // Entry invalida
-                    $this->StopEntry = false;
+                    $this->stopEntry = false;
                     $this->break_ema_check = 0;
+                    $this->side = null;
+
                     Cache::put($cacheKey, [
+                        'stopEntry' => $this->stopEntry,
                         'break_ema_check' => $this->break_ema_check,
-                    ], now()->addMinutes($timeframe));
-                    Log::warning("Invalid check N°3 - no valid Entry found :(");
+                        'side' => $this->side,
+                    ], now()->addMinutes($timeframe*2));
+
+                    Log::debug("Invalid check N°3 - no valid Entry found :(");
                 }
             }
 
@@ -325,63 +384,48 @@ class Beta extends TradingHandler
     // determina se c'è stata una rottura dell'EMA per decidere la direzione del trade
     private function checkBreak($ema, $open_last, $close_last) {
         if ($close_last < $ema && $open_last > $ema) {
+            
+            // Cache::put($cacheKey, [
+            //     'break_direction' => "LONG"
+            // ]);
+
             return "LONG";
         } elseif ($close_last > $ema && $open_last < $ema) {
+
+            // Cache::put($cacheKey, [
+            //     'break_direction' => "SHORT"
+            // ]);
+
             return "SHORT";
         }
+
+        // Cache::put($cacheKey, [
+        //     'break_direction' => "NONE"
+        // ]);
+
         return "NONE";
     }
 
     // verifica se le condizioni del prezzo e degli indicatori tecnici sono favorevoli
-    private function checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last) {
+    // private function checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last) {
         
-        // $rsi = $this->calculateRSI($close_values, $this->period_rsi);
-        // $tp_distance = abs($ema - $close_last);
+    //     // $rsi = $this->calculateRSI($close_values, $this->period_rsi);
+    //     // $tp_distance = abs($ema - $close_last);
 
-        if ($side === "BUY" && ($open_last > $close_last )) {
-            // if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-            //     Log::warning('Entry valid LONG: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
-                return true;
-            //}
-        } elseif ($side === "SELL" && ($open_last < $close_last )) {
-            // if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
-            //     Log::warning('Entry valid SHORT: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
-                return true;
-            //}
-        }
-
-        return false;
-    }
-
-}
-
-    // private function handleCheckStep($cacheKey, $cacheDuration, $istanceKey, $ema, $close_values, $side, $close_last, $open_last, $step) {
-    //     if ($this->checkEntry($istanceKey, $ema, $close_values, $side, $close_last, $open_last)) {
-    //         $this->stopEntry = false;
-    //         Log::warning("Entry valida - $side - RSI < {$this->level_rsi}");
-    //         if(IsOrderExist($istanceKey, $timeframe, $symbol, $cmd, $lot, $side, $tp, $sl, $comment, $magnum)) {
-    //             $this->placeOrder($istanceKey, 0.1, $side, $tp, $sl, "Beta PHP Baby", 1);
-    //         }
-    //     } else {
-    //         $this->break_ema_check = $step + 1;
-    //         Cache::put($cacheKey, [
-    //             'break_ema_check' => $this->break_ema_check, 
-    //         ], now()->addMinutes($cacheDuration));
-    //         $this->stopEntry = true;
-    //         Log::warning("Controllo non valido N°$step");
+    //     if ($side === "BUY" && ($open_last > $close_last )) {
+    //         // if ($rsi < $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+    //         //     Log::debug('Entry valid LONG: RSI < ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+    //             return true;
+    //         //}
+    //     } elseif ($side === "SELL" && ($open_last < $close_last )) {
+    //         // if ($rsi > $this->level_rsi && $tp_distance > $this->min_tp_distance) {
+    //         //     Log::debug('Entry valid SHORT: RSI > ' . $this->level_rsi . ' e distanza TP > ' . $this->min_tp_distance);
+    //             return true;
+    //         //}
     //     }
+
+    //     return false;
     // }
 
-            // // Gestisci i passi per la strategia
-            // switch ($this->break_ema_check) {
-            //     case 1:
-            //         $this->handleCheckStep($cacheKey, $timeframe, $istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, $this->break_ema_check);
-            //         break;
-            //     case 2:
-            //         $this->handleCheckStep($cacheKey, $timeframe, $istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, $this->break_ema_check);
-            //         break;
-            //     case 3:
-            //         $this->handleCheckStep($cacheKey, $timeframe, $istanceKey, $ema, $close_values, $this->side, $close_last, $open_last, $this->break_ema_check);
-            //         Log::warning('tentativi max raggiunti, no entry valid :(');
-            //         break;
+}
 

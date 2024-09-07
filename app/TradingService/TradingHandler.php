@@ -124,6 +124,15 @@ class TradingHandler
         return $symbol_precision[$symbol] ?? 4; // Default a 4 se non trovato
     }
 
+    // Metodo per formattare i dati di una candela
+    public function formatCandleData($candle)
+    {
+        return 'Open: ' . $candle->open . ', High: ' . $candle->current_high . 
+                ', Low: ' . $candle->current_low . ', Ask: ' . $candle->current_ask . 
+                ', Bid: ' . $candle->current_bid . ', Spread: ' . $candle->current_spread . 
+                ', Symbol: ' . $candle->simble_name . ', Timeframe: ' . $candle->time_frame;
+    }
+
     public function hasCandleChanged($lastClosedCandle, $newLastCandle)
     {
         return $lastClosedCandle->id !== $newLastCandle->id ||
@@ -325,7 +334,7 @@ class TradingHandler
     }
 
     ####################### FINE FUNZIONI VALIDATE #######################
-    
+
     public function WaveTrendLB($istanceKey, $symbol, $Clenght, $Alenght, $ObLevel1, $ObLevel2, $OsLevel1, $OsLevel2){
 
         // Recupera la data o il timestamp della candela con `first` a `true`
